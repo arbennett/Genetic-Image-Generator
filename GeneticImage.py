@@ -1,3 +1,4 @@
+#!/usr/bin/python
 '''
 An image generator using genetic algorithms
 to mimic input files
@@ -17,7 +18,7 @@ Created on May 13, 2014
 # Imports
 #-------------------------------------------------------------------------
 from PIL import Image, ImageDraw
-import numpy
+import numpy as np
 import time
 import sys
 import random
@@ -35,17 +36,18 @@ parser.add_argument("-L", "--loadImage", help="The name of the imagefile to load
 parser.add_argument("-P", "--population", help="The population of each generation.",
                     type=int, default=50)
 parser.add_argument("-G", "--generations", help="The number of generations to evolve.",
-                    type=float, default=1e3)
+                    type=float, default=100)
 parser.add_argument("-E", "--elements", help="The number of elements per individual in the population.",
-                    type=float, default=1e3)
+                    type=float, default=100)
 args=parser.parse_args()
 
 
 #-------------------------------------------------------------------------
 # Variable declarations
 #-------------------------------------------------------------------------
-image =Image.open(args.loadImage)
-size = width, height = image.size
+im = Image.open(args.loadImage).convert('LA')
+outfile = "greyscale.jpg"
+size = width, height = im.size
 pop = args.population
 Ngen = args.generations
 Nelements = int(args.elements)
@@ -58,25 +60,27 @@ diffMax=height/10
 #-------------------------------------------------------------------------
 
 # Convert the image to an array 
-# Supposedly this is the fastest way
 def imageToArray(image):
-    imArr = numpy.fromstring(image.tostring(), dtype=numpy.uint8)
-    numpy.reshape(imArr,(height,width))
-    return 0 
+    return np.asarray(image.getdata(),dtype=np.float64).reshape((image.size[1],image.size[0],2))
+
+# Convert an array to a greyscale image
+def arrayToImage(arr):
+    return Image.fromarray(np.asarray(arr,dtype=np.uint8),mode='LA')
 
 # Generates a random test
 def generateRandomTest():
     testElements=[]
-    testImg = Image.new('RGB',(width,height),"white")
+    testImg = Image.new('L',(width,height),"white")
     draw = ImageDraw.Draw(testImg)
     for i in range(Nelements):
         r=int(rMax*random.random())
         x, y=random.randint(0,width), random.randint(0,height)
-        val=random.randint(0,255)
-        theColor=(val, val, val)
-        testElements.append([r,x,y,val])  
+        theColor=random.randint(0,255)
+        alpha = random.randint(0,255)
+        testElements.append([r,x,y,theColor,alpha])  
         draw.ellipse((x-r,y-r,x+r,y+r), fill=theColor)
-    return testElements, list(testImg.getData())
+        testImg.putalpha(alpha)
+    return testElements, testImg
 
 # Input specs: [ [ r, x, y, val ], ..., [ r, x, y, val ] ]
 def generateSeededTest(input):
@@ -91,23 +95,26 @@ def generateSeededTest(input):
         testElements.append([x,y,r,val])   
         draw.ellipse((x-r,y-r,x+r,y+r), fill=theColor)
     return testElements, list(testImg.getData())
-        
-# Convert the image to grayscale for now - handling color shouldn't be too bad
-# Also returns in array form     
-def grayscale(img): 
-    arr = imageToArray(img)
-    avgs = [[(r*0.298 + g*0.587 + b*0.114) for (r,g,b) in col] for col in arr]
-    return numpy.array([[[avg] for avg in col] for col in avgs])
 
-# Adds up the difference betwen the actual and approximate
+# Adds up the difference between the actual and approximate
 def calculateScore(mimic, actual):
     score=0
     for i in range(width):
         for j in range(height):
-            score+=abs(image[i,j]-mimic[i,j])
+            score+=abs(actual[i,j]-mimic[i,j])
     return score
-    
 
+# Tests 
+inArr = imageToArray(im)
+testElements, testIm = generateRandomTest()
+testArr = imageToArray(testIm)
+print calculateScore(inArr, testArr)
+print calculateScore(inArr, inArr)
+ 
+    
+######### SAVE ME FOR LATER #########    
+    
+'''
 #-------------------------------------------------------------------------
 # Execute the algorithm
 #-------------------------------------------------------------------------
@@ -148,7 +155,7 @@ for gen in range(Ngen):
     for each in samples:
         saveImg = Image.fromarray(each)
         saveImg.save("genetic"+each+"_"+gen, "JPEG")
-        
+'''        
 
 
     
