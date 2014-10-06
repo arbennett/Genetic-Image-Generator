@@ -32,13 +32,13 @@ import copy
 #-------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 parser.add_argument("-L", "--loadImage", help="The name of the imagefile to load (including file extension)", 
-                    default="testImage.jpg")
+                    default="testImage.png")
 parser.add_argument("-P", "--population", help="The population of each generation.",
-                    type=int, default=50)
+                    type=int, default=5000)
 parser.add_argument("-G", "--generations", help="The number of generations to evolve.",
-                    type=float, default=100)
+                    type=float, default=50000)
 parser.add_argument("-E", "--elements", help="The number of elements per individual in the population.",
-                    type=float, default=100)
+                    type=float, default=75)
 args=parser.parse_args()
 
 
@@ -46,14 +46,16 @@ args=parser.parse_args()
 # Variable declarations
 #-------------------------------------------------------------------------
 im = Image.open(args.loadImage).convert('LA')
-outfile = "greyscale.jpg"
 size = width, height = im.size
 pop = args.population
-Ngen = args.generations
+Ngens = args.generations
 Nelements = int(args.elements)
-Nreproduce = height/10
-rMax = height/10 # Maximum circle radius
-diffMax=height/10
+rMax = height/3 # Maximum circle radius
+dx = width/5    # Maximum change in x for new child
+dy = height/5   # Maximum change in y for new child
+da = 255/5      # Maximum change in color for new child
+dc = 255/5      # Maximum change in alpha for new child
+j=1 # Counter
 
 #-------------------------------------------------------------------------
 # Function definitions
@@ -70,49 +72,112 @@ def arrayToImage(arr):
 # Generates a random test
 def generateRandomTest():
     testElements=[]
-    testImg = Image.new('L',(width,height),"white")
-    draw = ImageDraw.Draw(testImg)
+    decals=[]
+    testImg = Image.new('LA',(width,height),(255,255))
+    testImg.save("blank.png")
     for i in range(Nelements):
+        decals.append(Image.new('RGBA',(width,height),(0,0,0,0)))
+        draw = ImageDraw.Draw(decals[-1])
         r=int(rMax*random.random())
         x, y=random.randint(0,width), random.randint(0,height)
         theColor=random.randint(0,255)
         alpha = random.randint(0,255)
         testElements.append([r,x,y,theColor,alpha])  
-        draw.ellipse((x-r,y-r,x+r,y+r), fill=theColor)
-        testImg.putalpha(alpha)
+        draw.ellipse((x-r,y-r,x+r,y+r), fill=(theColor,theColor,theColor,alpha))
+        testImg.paste(decals[-1], (0,0), decals[-1])
     return testElements, testImg
 
-# Input specs: [ [ r, x, y, val ], ..., [ r, x, y, val ] ]
+# Input specs: [ [ r, x, y, val, alpha ], ..., [ r, x, y, val, alpha ] ]
 def generateSeededTest(input):
     testElements=[]
-    testImg = Image.new('RGB',(width,height),"white")
-    draw = ImageDraw.Draw(testImg)
+    decals=[]
+    testImg = Image.new('LA',(width,height),"black")
     for i in range(Nelements):
-        r=int(input[i,0]+random.random()-0.5)
-        x, y=input[i,1]+random.randint(), input[i,2]+random.randint()
-        val=input[i,3]+random.randint(-5,5)
-        theColor=(val, val, val)
-        testElements.append([x,y,r,val])   
-        draw.ellipse((x-r,y-r,x+r,y+r), fill=theColor)
-    return testElements, list(testImg.getData())
+        decals.append(Image.new('RGBA',(width,height),(0,0,0,0)))
+        draw = ImageDraw.Draw(decals[-1])
+        r=input[i][0]
+        x=input[i][1]
+        y=input[i][2]
+        theColor=input[i][3]
+        alpha=input[i][4]
+        # Mutate ~20% of the "genes"
+        if random.random() > 0.8:
+            temp = decals[-1]
+            swapIndex = random.randint(0,len(decals)-1)
+            decals[-1]=decals[swapIndex]
+            decals[swapIndex]=temp
+            r+=10*(random.random()-0.5)
+            x, y=np.max([0, np.min([width, x+random.randint(-dx/2,dx/2)]) ]), \
+                 np.max([0, np.min([height, y+random.randint(-dy/2,dy/2)]) ])
+            theColor=np.max( [0, np.min( [255, theColor+random.randint(-dc/2,dc/2)] )] )
+            alpha=np.max( [0, np.min([255, alpha+random.randint(-da/2,da/2)] )] )
+        testElements.append([r,x,y,theColor,alpha])   
+        draw.ellipse((x-r,y-r,x+r,y+r), fill=(theColor,theColor,theColor,alpha))
+        testImg.paste(decals[-1], (0,0), decals[-1])
+    return testElements, testImg
 
 # Adds up the difference between the actual and approximate
 def calculateScore(mimic, actual):
     score=0
     for i in range(width):
         for j in range(height):
-            score+=abs(actual[i,j]-mimic[i,j])
+            score+=(actual[i,j]-mimic[i,j])**2
     return score
 
-# Tests 
+
+#################################
+# Simple parent vs child method #
+#################################
 inArr = imageToArray(im)
-testElements, testIm = generateRandomTest()
-testArr = imageToArray(testIm)
-print calculateScore(inArr, testArr)
-print calculateScore(inArr, inArr)
- 
-    
+
+# In the beginning, there was one:
+parentElements, parentIm = generateRandomTest()
+parentArr = imageToArray(parentIm)
+
+childElements, childIm = generateSeededTest(parentElements)
+childArr = imageToArray(childIm)
+
+# Go for it...
+for i in range(Ngens):
+    # Build a child and calculate all the important stuff.
+    childElements, childIm = generateSeededTest(parentElements)
+    childArr = imageToArray(childIm)
+    parentScore = calculateScore(parentArr,inArr)[0]
+    childScore = calculateScore(childArr,inArr)[0]
+    print str(i) + "  :  " + str(parentScore/1000000)
+    # If the child image is better, make it pass on it's genome
+    # Otherwise, the parent gets another go at making a superior child
+    if childScore < parentScore:
+        parentElements = childElements
+        parentIm = childIm
+        parentArr = childArr
+        j+=1
+        parentIm.save("output" + str(j) + ".png")
+        
+
 ######### SAVE ME FOR LATER #########    
+# Notes for a real genetic method:
+#  
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+
     
 '''
 #-------------------------------------------------------------------------
